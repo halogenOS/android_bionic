@@ -36,7 +36,7 @@ __BEGIN_DECLS
 typedef struct prop_info prop_info;
 
 #define PROP_NAME_MAX   32
-#define PROP_VALUE_MAX  92
+#define PROP_VALUE_MAX  256
 
 /* Look up a system property by name, copying its value and a
 ** \0 terminator to the provided pointer.  The total bytes
