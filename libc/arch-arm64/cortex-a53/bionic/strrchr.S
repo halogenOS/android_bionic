@@ -1,6 +1,4 @@
 /*
-   strrchr - find last instance of a character in a string
-
    Copyright (c) 2014, ARM Limited
    All rights Reserved.
 
@@ -27,13 +25,13 @@
    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.  */
 
+#include <private/bionic_asm.h>
+
 /* Assumptions:
  *
  * ARMv8-a, AArch64
  * Neon Available.
  */
-
-#include <private/bionic_asm.h>
 
 /* Arguments and results.  */
 #define srcin		x0
@@ -110,10 +108,10 @@ ENTRY(strrchr)
 	addp	vhas_chr1.16b, vhas_chr1.16b, vhas_chr2.16b	// 256->128
 	addp	vhas_nul1.16b, vhas_nul1.16b, vhas_nul1.16b	// 128->64
 	addp	vhas_chr1.16b, vhas_chr1.16b, vhas_chr1.16b	// 128->64
-	mov	nul_match, vhas_nul1.2d[0]
+	mov	nul_match, vhas_nul1.d[0]
 	lsl	tmp1, tmp1, #1
 	mov	const_m1, #~0
-	mov	chr_match, vhas_chr1.2d[0]
+	mov	chr_match, vhas_chr1.d[0]
 	lsr	tmp3, const_m1, tmp1
 
 	bic	nul_match, nul_match, tmp3	// Mask padding bits.
@@ -136,15 +134,15 @@ ENTRY(strrchr)
 	addp	vhas_chr1.16b, vhas_chr1.16b, vhas_chr2.16b	// 256->128
 	addp	vend1.16b, vend1.16b, vend1.16b	// 128->64
 	addp	vhas_chr1.16b, vhas_chr1.16b, vhas_chr1.16b	// 128->64
-	mov	nul_match, vend1.2d[0]
-	mov	chr_match, vhas_chr1.2d[0]
+	mov	nul_match, vend1.d[0]
+	mov	chr_match, vhas_chr1.d[0]
 	cbz	nul_match, .Lloop
 
 	and	vhas_nul1.16b, vhas_nul1.16b, vrepmask_0.16b
 	and	vhas_nul2.16b, vhas_nul2.16b, vrepmask_0.16b
 	addp	vhas_nul1.16b, vhas_nul1.16b, vhas_nul2.16b
 	addp	vhas_nul1.16b, vhas_nul1.16b, vhas_nul1.16b
-	mov	nul_match, vhas_nul1.2d[0]
+	mov	nul_match, vhas_nul1.d[0]
 
 .Ltail:
 	/* Work out exactly where the string ends.  */
