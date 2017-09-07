@@ -1182,7 +1182,7 @@ static const char* get_executable_path() {
     char path[PATH_MAX];
     ssize_t path_len = readlink("/proc/self/exe", path, sizeof(path));
     if (path_len == -1 || path_len >= static_cast<ssize_t>(sizeof(path))) {
-      __libc_fatal("readlink('/proc/self/exe') failed: %s", strerror(errno));
+      async_safe_fatal("readlink('/proc/self/exe') failed: %s", strerror(errno));
     }
     executable_path = std::string(path, path_len);
   }
