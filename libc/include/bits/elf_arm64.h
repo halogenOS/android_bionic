@@ -29,20 +29,6 @@
 #ifndef _AARCH64_ELF_MACHDEP_H_
 #define _AARCH64_ELF_MACHDEP_H_
 
-#if defined(__AARCH64EB__)
-#define ELF64_MACHDEP_ENDIANNESS    ELFDATA2MSB
-#else
-#define ELF64_MACHDEP_ENDIANNESS    ELFDATA2LSB
-#endif
-
-#define ELF64_MACHDEP_ID_CASES                      \
-    case EM_AARCH64:                                \
-        break;
-
-#define ELF64_MACHDEP_ID    EM_AARCH64
-
-#define ARCH_ELFSIZE        64  /* MD native binary size */
-
 /* Null relocations */
 #define R_ARM_NONE                      0
 #define R_AARCH64_NONE                  256
@@ -100,7 +86,5 @@
 #define R_AARCH64_TLS_TPREL64           1030
 #define R_AARCH64_TLS_DTPREL32          1031
 #define R_AARCH64_IRELATIVE             1032
-
-#define R_TYPE(name)        __CONCAT(R_AARCH64_,name)
 
 #endif /* _AARCH64_ELF_MACHDEP_H_ */

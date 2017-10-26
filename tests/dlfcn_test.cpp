@@ -22,10 +22,10 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "private/ScopeGuard.h"
-
 #include <string>
 #include <thread>
+
+#include <android-base/scopeguard.h>
 
 #include "gtest_globals.h"
 #include "dlfcn_symlink_support.h"
@@ -247,6 +247,40 @@ TEST(dlfcn, dlopen_by_soname) {
 
 // mips doesn't support ifuncs
 #if !defined(__mips__)
+TEST(dlfcn, ifunc_variable) {
+  typedef const char* (*fn_ptr)();
+
+  // ifunc's choice depends on whether IFUNC_CHOICE has a value
+  // first check the set case
+  setenv("IFUNC_CHOICE", "set", 1);
+  // preload libtest_ifunc_variable_impl.so
+  void* handle_impl = dlopen("libtest_ifunc_variable_impl.so", RTLD_NOW);
+  void* handle = dlopen("libtest_ifunc_variable.so", RTLD_NOW);
+  ASSERT_TRUE(handle != nullptr) << dlerror();
+  const char** foo_ptr = reinterpret_cast<const char**>(dlsym(handle, "foo"));
+  fn_ptr foo_library_ptr = reinterpret_cast<fn_ptr>(dlsym(handle, "foo_library"));
+  ASSERT_TRUE(foo_ptr != nullptr) << dlerror();
+  ASSERT_TRUE(foo_library_ptr != nullptr) << dlerror();
+  ASSERT_EQ(strncmp("set", *foo_ptr, 3), 0);
+  ASSERT_EQ(strncmp("set", foo_library_ptr(), 3), 0);
+  dlclose(handle);
+  dlclose(handle_impl);
+
+  // then check the unset case
+  unsetenv("IFUNC_CHOICE");
+  handle_impl = dlopen("libtest_ifunc_variable_impl.so", RTLD_NOW);
+  handle = dlopen("libtest_ifunc_variable.so", RTLD_NOW);
+  ASSERT_TRUE(handle != nullptr) << dlerror();
+  foo_ptr = reinterpret_cast<const char**>(dlsym(handle, "foo"));
+  foo_library_ptr = reinterpret_cast<fn_ptr>(dlsym(handle, "foo_library"));
+  ASSERT_TRUE(foo_ptr != nullptr) << dlerror();
+  ASSERT_TRUE(foo_library_ptr != nullptr) << dlerror();
+  ASSERT_EQ(strncmp("unset", *foo_ptr, 5), 0);
+  ASSERT_EQ(strncmp("unset", foo_library_ptr(), 5), 0);
+  dlclose(handle);
+  dlclose(handle_impl);
+}
+
 TEST(dlfcn, ifunc) {
   typedef const char* (*fn_ptr)();
 
@@ -254,11 +288,11 @@ TEST(dlfcn, ifunc) {
   // first check the set case
   setenv("IFUNC_CHOICE", "set", 1);
   void* handle = dlopen("libtest_ifunc.so", RTLD_NOW);
-  ASSERT_TRUE(handle != nullptr);
+  ASSERT_TRUE(handle != nullptr) << dlerror();
   fn_ptr foo_ptr = reinterpret_cast<fn_ptr>(dlsym(handle, "foo"));
   fn_ptr foo_library_ptr = reinterpret_cast<fn_ptr>(dlsym(handle, "foo_library"));
-  ASSERT_TRUE(foo_ptr != nullptr);
-  ASSERT_TRUE(foo_library_ptr != nullptr);
+  ASSERT_TRUE(foo_ptr != nullptr) << dlerror();
+  ASSERT_TRUE(foo_library_ptr != nullptr) << dlerror();
   ASSERT_EQ(strncmp("set", foo_ptr(), 3), 0);
   ASSERT_EQ(strncmp("set", foo_library_ptr(), 3), 0);
   dlclose(handle);
@@ -266,22 +300,17 @@ TEST(dlfcn, ifunc) {
   // then check the unset case
   unsetenv("IFUNC_CHOICE");
   handle = dlopen("libtest_ifunc.so", RTLD_NOW);
-  ASSERT_TRUE(handle != nullptr);
+  ASSERT_TRUE(handle != nullptr) << dlerror();
   foo_ptr = reinterpret_cast<fn_ptr>(dlsym(handle, "foo"));
   foo_library_ptr = reinterpret_cast<fn_ptr>(dlsym(handle, "foo_library"));
-  ASSERT_TRUE(foo_ptr != nullptr);
-  ASSERT_TRUE(foo_library_ptr != nullptr);
+  ASSERT_TRUE(foo_ptr != nullptr) << dlerror();
+  ASSERT_TRUE(foo_library_ptr != nullptr) << dlerror();
   ASSERT_EQ(strncmp("unset", foo_ptr(), 5), 0);
-  ASSERT_EQ(strncmp("unset", foo_library_ptr(), 3), 0);
+  ASSERT_EQ(strncmp("unset", foo_library_ptr(), 5), 0);
   dlclose(handle);
 }
 
-// ld.gold for arm produces incorrect binary (see http://b/27930475 for details)
-#if defined(__arm__)
-TEST(dlfcn, KNOWN_FAILURE_ON_BIONIC(ifunc_ctor_call)) {
-#else
 TEST(dlfcn, ifunc_ctor_call) {
-#endif
   typedef const char* (*fn_ptr)();
 
   void* handle = dlopen("libtest_ifunc.so", RTLD_NOW);
@@ -296,12 +325,7 @@ TEST(dlfcn, ifunc_ctor_call) {
   dlclose(handle);
 }
 
-// ld.gold for arm produces incorrect binary (see http://b/27930475 for details)
-#if defined(__arm__)
-TEST(dlfcn, KNOWN_FAILURE_ON_BIONIC(ifunc_ctor_call_rtld_lazy)) {
-#else
 TEST(dlfcn, ifunc_ctor_call_rtld_lazy) {
-#endif
   typedef const char* (*fn_ptr)();
 
   void* handle = dlopen("libtest_ifunc.so", RTLD_LAZY);
@@ -330,9 +354,7 @@ TEST(dlfcn, dlopen_check_relocation_dt_needed_order) {
   // in both dt_needed libraries, the correct relocation should
   // use the function defined in libtest_relo_check_dt_needed_order_1.so
   void* handle = nullptr;
-  auto guard = make_scope_guard([&]() {
-    dlclose(handle);
-  });
+  auto guard = android::base::make_scope_guard([&]() { dlclose(handle); });
 
   handle = dlopen("libtest_relo_check_dt_needed_order.so", RTLD_NOW);
   ASSERT_TRUE(handle != nullptr) << dlerror();
@@ -986,9 +1008,7 @@ TEST(dlfcn, dlopen_library_with_only_gnu_hash) {
   dlerror(); // Clear any pending errors.
   void* handle = dlopen("libgnu-hash-table-library.so", RTLD_NOW);
   ASSERT_TRUE(handle != nullptr) << dlerror();
-  auto guard = make_scope_guard([&]() {
-    dlclose(handle);
-  });
+  auto guard = android::base::make_scope_guard([&]() { dlclose(handle); });
   void* sym = dlsym(handle, "getRandomNumber");
   ASSERT_TRUE(sym != nullptr) << dlerror();
   int (*fn)(void);
@@ -1009,9 +1029,7 @@ TEST(dlfcn, dlopen_library_with_only_gnu_hash) {
 TEST(dlfcn, dlopen_library_with_only_sysv_hash) {
   void* handle = dlopen("libsysv-hash-table-library.so", RTLD_NOW);
   ASSERT_TRUE(handle != nullptr) << dlerror();
-  auto guard = make_scope_guard([&]() {
-    dlclose(handle);
-  });
+  auto guard = android::base::make_scope_guard([&]() { dlclose(handle); });
   void* sym = dlsym(handle, "getRandomNumber");
   ASSERT_TRUE(sym != nullptr) << dlerror();
   int (*fn)(void);

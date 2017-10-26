@@ -256,8 +256,7 @@
  * added to commonly used libc functions. If a buffer overrun is
  * detected, the program is safely aborted.
  *
- * See
- * http://gcc.gnu.org/onlinedocs/gcc/Object-Size-Checking.html for details.
+ * https://android-developers.googleblog.com/2017/04/fortify-in-android.html
  */
 
 #define __BIONIC_FORTIFY_UNKNOWN_SIZE ((size_t) -1)
@@ -297,9 +296,12 @@
 /* __BIONIC_FORTIFY_NONSTATIC_INLINE is pointless in GCC's FORTIFY */
 #    define __BIONIC_FORTIFY_INLINE extern __inline__ __always_inline __attribute__((gnu_inline)) __attribute__((__artificial__))
 #  endif
-#  define __pass_object_size __pass_object_size_n(__bos_level)
-#  define __pass_object_size0 __pass_object_size_n(0)
+#else
+/* Further increase sharing for some inline functions */
+#  define __pass_object_size_n(n)
 #endif
+#define __pass_object_size __pass_object_size_n(__bos_level)
+#define __pass_object_size0 __pass_object_size_n(0)
 
 /* Used to support clangisms with FORTIFY. This isn't in the FORTIFY section
  * because these change how symbols are emitted. The linker must be kept happy.

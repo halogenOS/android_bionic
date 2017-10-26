@@ -44,8 +44,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include <android-base/scopeguard.h>
+
+#include <async_safe/log.h>
+
 // Private C library headers.
-#include "private/ScopeGuard.h"
 
 #include "linker.h"
 #include "linker_block_allocator.h"
@@ -343,7 +346,7 @@ static void parse_LD_LIBRARY_PATH(const char* path) {
 
 static bool realpath_fd(int fd, std::string* realpath) {
   std::vector<char> buf(PATH_MAX), proc_self_fd(PATH_MAX);
-  __libc_format_buffer(&proc_self_fd[0], proc_self_fd.size(), "/proc/self/fd/%d", fd);
+  async_safe_format_buffer(&proc_self_fd[0], proc_self_fd.size(), "/proc/self/fd/%d", fd);
   if (readlink(&proc_self_fd[0], &buf[0], buf.size()) == -1) {
     PRINT("readlink(\"%s\") failed: %s [fd=%d]", &proc_self_fd[0], strerror(errno), fd);
     return false;
@@ -362,16 +365,14 @@ static bool realpath_fd(int fd, std::string* realpath) {
 //
 // Intended to be called by libc's __gnu_Unwind_Find_exidx().
 _Unwind_Ptr do_dl_unwind_find_exidx(_Unwind_Ptr pc, int* pcount) {
-  uintptr_t addr = reinterpret_cast<uintptr_t>(pc);
-
   for (soinfo* si = solist_get_head(); si != 0; si = si->next) {
-    if ((addr >= si->base) && (addr < (si->base + si->size))) {
+    if ((pc >= si->base) && (pc < (si->base + si->size))) {
         *pcount = si->ARM_exidx_count;
         return reinterpret_cast<_Unwind_Ptr>(si->ARM_exidx);
     }
   }
   *pcount = 0;
-  return nullptr;
+  return 0;
 }
 
 #endif
@@ -494,7 +495,7 @@ ProtectedDataGuard::ProtectedDataGuard() {
   }
 
   if (ref_count_ == 0) { // overflow
-    __libc_fatal("Too many nested calls to dlopen()");
+    async_safe_fatal("Too many nested calls to dlopen()");
   }
 }
 
@@ -1055,7 +1056,7 @@ static int open_library_in_zipfile(ZipArchiveCache* zip_archive_cache,
 }
 
 static bool format_path(char* buf, size_t buf_size, const char* path, const char* name) {
-  int n = __libc_format_buffer(buf, buf_size, "%s/%s", path, name);
+  int n = async_safe_format_buffer(buf, buf_size, "%s/%s", path, name);
   if (n < 0 || n >= static_cast<int>(buf_size)) {
     PRINT("Warning: ignoring very long library path: %s/%s", path, name);
     return false;
@@ -1624,13 +1625,13 @@ bool find_libraries(android_namespace_t* ns,
   // list of libraries to link - see step 2.
   size_t soinfos_count = 0;
 
-  auto scope_guard = make_scope_guard([&]() {
+  auto scope_guard = android::base::make_scope_guard([&]() {
     for (LoadTask* t : load_tasks) {
       LoadTask::deleter(t);
     }
   });
 
-  auto failure_guard = make_scope_guard([&]() {
+  auto failure_guard = android::base::make_scope_guard([&]() {
     // Housekeeping
     soinfo_unload(soinfos, soinfos_count);
   });
@@ -1749,7 +1750,7 @@ bool find_libraries(android_namespace_t* ns,
       }
     });
 
-    failure_guard.disable();
+    failure_guard.Disable();
   }
 
   return linked;
@@ -1860,7 +1861,7 @@ static void soinfo_unload(soinfo* soinfos[], size_t count) {
       }
     } else {
 #if !defined(__work_around_b_24465209__)
-      __libc_fatal("soinfo for \"%s\"@%p has no version", si->get_realpath(), si);
+      async_safe_fatal("soinfo for \"%s\"@%p has no version", si->get_realpath(), si);
 #else
       PRINT("warning: soinfo for \"%s\"@%p has no version", si->get_realpath(), si);
       for_each_dt_needed(si, [&] (const char* library_name) {
@@ -1934,8 +1935,8 @@ void do_android_get_LD_LIBRARY_PATH(char* buffer, size_t buffer_size) {
   }
 
   if (buffer_size < required_size) {
-    __libc_fatal("android_get_LD_LIBRARY_PATH failed, buffer too small: "
-                 "buffer len %zu, required len %zu", buffer_size, required_size);
+    async_safe_fatal("android_get_LD_LIBRARY_PATH failed, buffer too small: "
+                     "buffer len %zu, required len %zu", buffer_size, required_size);
   }
 
   char* end = buffer;
@@ -1992,9 +1993,8 @@ void* do_dlopen(const char* name, int flags,
          ns == nullptr ? "(null)" : ns->get_name(),
          ns);
 
-  auto failure_guard = make_scope_guard([&]() {
-    LD_LOG(kLogDlopen, "... dlopen failed: %s", linker_get_error_buffer());
-  });
+  auto failure_guard = android::base::make_scope_guard(
+      [&]() { LD_LOG(kLogDlopen, "... dlopen failed: %s", linker_get_error_buffer()); });
 
   if ((flags & ~(RTLD_NOW|RTLD_LAZY|RTLD_LOCAL|RTLD_GLOBAL|RTLD_NODELETE|RTLD_NOLOAD)) != 0) {
     DL_ERR("invalid flags to dlopen: %x", flags);
@@ -2055,7 +2055,7 @@ void* do_dlopen(const char* name, int flags,
            "... dlopen calling constructors: realpath=\"%s\", soname=\"%s\", handle=%p",
            si->get_realpath(), si->get_soname(), handle);
     si->call_constructors();
-    failure_guard.disable();
+    failure_guard.Disable();
     LD_LOG(kLogDlopen,
            "... dlopen successful: realpath=\"%s\", soname=\"%s\", handle=%p",
            si->get_realpath(), si->get_soname(), handle);
@@ -2133,9 +2133,8 @@ bool do_dlsym(void* handle,
          ns == nullptr ? "(null)" : ns->get_name(),
          ns);
 
-  auto failure_guard = make_scope_guard([&]() {
-    LD_LOG(kLogDlsym, "... dlsym failed: %s", linker_get_error_buffer());
-  });
+  auto failure_guard = android::base::make_scope_guard(
+      [&]() { LD_LOG(kLogDlsym, "... dlsym failed: %s", linker_get_error_buffer()); });
 
   if (sym_name == nullptr) {
     DL_ERR("dlsym failed: symbol name is null");
@@ -2166,7 +2165,7 @@ bool do_dlsym(void* handle,
 
     if ((bind == STB_GLOBAL || bind == STB_WEAK) && sym->st_shndx != 0) {
       *symbol = reinterpret_cast<void*>(found->resolve_symbol_address(sym));
-      failure_guard.disable();
+      failure_guard.Disable();
       LD_LOG(kLogDlsym,
              "... dlsym successful: sym_name=\"%s\", sym_ver=\"%s\", found in=\"%s\", address=%p",
              sym_name, sym_ver, found->get_soname(), *symbol);
@@ -3363,14 +3362,17 @@ bool soinfo::link_image(const soinfo_list_t& global_group, const soinfo_list_t& 
         && get_application_target_sdk_version() >= __ANDROID_API_M__) {
 #else
     if (get_application_target_sdk_version() >= __ANDROID_API_M__) {
+      DL_ERR_AND_LOG("\"%s\" has text relocations (https://android.googlesource.com/platform/"
+                     "bionic/+/master/android-changes-for-ndk-developers.md#Text-Relocations-"
+                     "Enforced-for-API-level-23)", get_realpath());
 #endif
-      DL_ERR_AND_LOG("\"%s\" has text relocations", get_realpath());
       return false;
     }
     // Make segments writable to allow text relocations to work properly. We will later call
     // phdr_table_protect_segments() after all of them are applied.
-    DL_WARN("\"%s\" has text relocations. This is wasting memory and prevents "
-            "security hardening. Please fix.", get_realpath());
+    DL_WARN("\"%s\" has text relocations (https://android.googlesource.com/platform/"
+            "bionic/+/master/android-changes-for-ndk-developers.md#Text-Relocations-Enforced-"
+            "for-API-level-23)", get_realpath());
     add_dlwarning(get_realpath(), "text relocations");
     if (phdr_table_unprotect_segments(phdr, phnum, load_bias) < 0) {
       DL_ERR("can't unprotect loadable segments for \"%s\": %s",
