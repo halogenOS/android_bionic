@@ -102,8 +102,10 @@ cc_binary {
     ],
 
     product_variables: {
-        needs_text_relocations: {
-            cppflags: ["-DTARGET_NEEDS_PLATFORM_TEXT_RELOCATIONS"],
+        xos: {
+            needs_text_relocations: {
+                cppflags: ["-DTARGET_NEEDS_PLATFORM_TEXT_RELOCATIONS"],
+            },
         },
     },
 
