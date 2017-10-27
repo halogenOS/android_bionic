@@ -105,8 +105,10 @@ cc_binary {
         debuggable: {
             cppflags: ["-DUSE_LD_CONFIG_FILE"],
         },
-        needs_text_relocations: {
-            cppflags: ["-DTARGET_NEEDS_PLATFORM_TEXT_RELOCATIONS"],
+        xos: {
+            needs_text_relocations: {
+                cppflags: ["-DTARGET_NEEDS_PLATFORM_TEXT_RELOCATIONS"],
+            },
         },
     },
 
