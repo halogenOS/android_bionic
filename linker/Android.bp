@@ -9,6 +9,7 @@ cc_library_static {
     cflags: [
         "-Wall",
         "-Werror",
+        "-O3",
     ],
 
     // We need to access Bionic private headers in the linker.
@@ -48,6 +49,7 @@ cc_object {
         "-Wextra",
         "-Wno-unused",
         "-Werror",
+        "-O3",
     ],
 
     srcs: [
@@ -176,6 +178,7 @@ cc_defaults {
         "-Wextra",
         "-Wunused",
         "-Werror",
+        "-O3",
 
         // Define _USING_LIBCXX so <stdatomic.h> defers to the <atomic> header. When a Soong module
         // uses the platform libc++, Soong automatically passes this macro, but the dynamic linker
@@ -364,6 +367,7 @@ cc_library {
         "-Wextra",
         "-Wunused",
         "-Werror",
+        "-O3",
     ],
     stl: "none",
 
