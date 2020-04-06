@@ -25,6 +25,7 @@ cc_library_static {
 
     stl: "none",
     system_shared_libs: [],
+    header_libs: ["libc_headers"],
 
     sanitize: {
         never: true,
@@ -98,6 +99,7 @@ cc_library {
 
     nocrt: true,
     system_shared_libs: [],
+    header_libs: ["libc_headers"],
 
     // Opt out of native_coverage when opting out of system_shared_libs
     native_coverage: false,
@@ -177,6 +179,7 @@ cc_library {
 
     nocrt: true,
     system_shared_libs: [],
+    header_libs: ["libc_headers"],
 
     // Opt out of native_coverage when opting out of system_shared_libs
     native_coverage: false,
