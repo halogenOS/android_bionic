@@ -50,6 +50,9 @@ libc_common_flags = [
 
     // GWP-ASan requires platform TLS.
     "-fno-emulated-tls",
+
+    // Optimizations
+    "-O3",
 ]
 
 // Define some common cflags
