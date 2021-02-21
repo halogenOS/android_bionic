@@ -328,6 +328,8 @@ cc_defaults {
 
     // Opt out of native_coverage when opting out of system_shared_libs
     native_coverage: false,
+
+    cflags: ["-O3"],
 }
 
 // ========================================================
@@ -465,6 +467,7 @@ cc_library {
         "-Wextra",
         "-Wunused",
         "-Werror",
+        "-O3",
     ],
     stl: "none",
 

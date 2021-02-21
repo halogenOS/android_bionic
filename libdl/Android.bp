@@ -111,6 +111,7 @@ cc_library {
         "-Wextra",
         "-Wunused",
         "-Werror",
+        "-O3",
     ],
     stl: "none",
 
@@ -197,6 +198,7 @@ cc_library {
         "-Wextra",
         "-Wunused",
         "-Werror",
+        "-O3",
     ],
 
     stl: "none",
