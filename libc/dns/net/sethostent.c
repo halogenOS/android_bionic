@@ -67,14 +67,14 @@ void
 /*ARGSUSED*/
 sethostent(int stayopen)
 {
-	struct res_static* rs = __res_get_static();
+	res_static rs = __res_get_static();
 	if (rs) sethostent_r(&rs->hostf);
 }
 
 void
 endhostent(void)
 {
-	struct res_static* rs = __res_get_static();
+	res_static rs = __res_get_static();
 	if (rs) endhostent_r(&rs->hostf);
 }
 
