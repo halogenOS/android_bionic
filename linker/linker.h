@@ -93,7 +93,9 @@ std::vector<const ShimDescriptor*> shim_matching_pairs(const char* path);
 template<typename F>
 void for_each_matching_shim(const char* path, F action) {
   if (path == nullptr) return;
+  INFO("Finding shim libs for \"%s\"", path);
   for (const auto& one_pair : shim_matching_pairs(path)) {
+    INFO("Injecting shim lib \"%s\" as needed for %s", one_pair->second.c_str(), path);
     action(one_pair->second.c_str());
   }
 }
