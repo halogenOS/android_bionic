@@ -28,6 +28,9 @@
 
 #include <sys/system_properties.h>
 
+#include <string.h>
+#include <unistd.h>
+
 #include <async_safe/CHECK.h>
 #include <system_properties/prop_area.h>
 #include <system_properties/system_properties.h>
@@ -37,6 +40,59 @@
 static SystemProperties system_properties;
 static_assert(__is_trivially_constructible(SystemProperties),
               "System Properties must be trivially constructable");
+
+// Property interception for certified build spoofing.
+// Values are stored in process-local memory only — not as system properties
+// or files — to prevent detection by integrity checks.
+
+namespace {
+
+constexpr size_t kMaxSpoofEntries = 32;
+constexpr size_t kNameCapacity = 128;
+
+struct SpoofEntry {
+  char name[kNameCapacity];
+  char value[PROP_VALUE_MAX];
+};
+
+SpoofEntry g_spoof_entries[kMaxSpoofEntries];
+volatile int g_spoof_count = 0;
+volatile bool g_spoof_active = false;
+
+static const char* const kHiddenPrefixes[] = {
+    "persist.sys.pihooks.",
+    "persist.sys.sussybox.",
+};
+
+bool is_hidden_prop(const char* name) {
+  for (const auto& prefix : kHiddenPrefixes) {
+    if (strncmp(name, prefix, strlen(prefix)) == 0) return true;
+  }
+  return false;
+}
+
+const char* get_spoofed_value(const char* name) {
+  if (!g_spoof_active) return nullptr;
+  for (int i = 0; i < g_spoof_count; i++) {
+    if (strcmp(name, g_spoof_entries[i].name) == 0) return g_spoof_entries[i].value;
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+extern "C" void __system_property_spoof_add(const char* name, const char* value) {
+  if (g_spoof_active) return;  // locked after enable
+  if (g_spoof_count >= static_cast<int>(kMaxSpoofEntries)) return;
+  const int idx = g_spoof_count;
+  strlcpy(g_spoof_entries[idx].name, name, kNameCapacity);
+  strlcpy(g_spoof_entries[idx].value, value, PROP_VALUE_MAX);
+  g_spoof_count++;
+}
+
+extern "C" void __system_property_spoof_enable() {
+  g_spoof_active = true;
+}
 
 // This is public because it was exposed in the NDK. As of 2017-01, ~60 apps reference this symbol.
 // It is set to nullptr and never modified.
@@ -66,24 +122,69 @@ uint32_t __system_property_area_serial() {
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 const prop_info* __system_property_find(const char* name) {
+  if (__predict_false(is_hidden_prop(name))) {
+    return nullptr;
+  }
   return system_properties.Find(name);
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_read(const prop_info* pi, char* name, char* value) {
-  return system_properties.Read(pi, name, value);
+  int len = system_properties.Read(pi, name, value);
+  if (__predict_false(len > 0 && name)) {
+    if (is_hidden_prop(name)) {
+      value[0] = '\0';
+      return 0;
+    }
+    const char* spoofed = get_spoofed_value(name);
+    if (spoofed) return static_cast<int>(strlcpy(value, spoofed, PROP_VALUE_MAX));
+  }
+  return len;
 }
+
+namespace {
+
+struct ReadCallbackWrapper {
+  void (*original)(void*, const char*, const char*, uint32_t);
+  void* cookie;
+};
+
+void intercepted_read_callback(void* wrapper_ptr, const char* name, const char* value,
+                               uint32_t serial) {
+  auto& w = *static_cast<ReadCallbackWrapper*>(wrapper_ptr);
+  if (name) {
+    if (is_hidden_prop(name)) {
+      w.original(w.cookie, name, "", serial);
+      return;
+    }
+    const char* spoofed = get_spoofed_value(name);
+    if (spoofed) {
+      w.original(w.cookie, name, spoofed, serial);
+      return;
+    }
+  }
+  w.original(w.cookie, name, value, serial);
+}
+
+}  // namespace
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 void __system_property_read_callback(const prop_info* pi,
                                      void (*callback)(void* cookie, const char* name,
                                                       const char* value, uint32_t serial),
                                      void* cookie) {
-  return system_properties.ReadCallback(pi, callback, cookie);
+  ReadCallbackWrapper wrapper{callback, cookie};
+  system_properties.ReadCallback(pi, intercepted_read_callback, &wrapper);
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_get(const char* name, char* value) {
+  if (__predict_false(is_hidden_prop(name))) {
+    value[0] = '\0';
+    return 0;
+  }
+  const char* spoofed = get_spoofed_value(name);
+  if (spoofed) return static_cast<int>(strlcpy(value, spoofed, PROP_VALUE_MAX));
   return system_properties.Get(name, value);
 }
 
@@ -125,9 +226,31 @@ const prop_info* __system_property_find_nth(unsigned n) {
   return system_properties.FindNth(n);
 }
 
+namespace {
+
+struct ForeachWrapper {
+  void (*original)(const prop_info*, void*);
+  void* cookie;
+};
+
+void filtered_foreach(const prop_info* pi, void* wrapper_ptr) {
+  auto& w = *static_cast<ForeachWrapper*>(wrapper_ptr);
+  char name[kNameCapacity];
+  char value[PROP_VALUE_MAX];
+  memset(name, 0, sizeof(name));
+  memset(value, 0, sizeof(value));
+  if (system_properties.Read(pi, name, value) > 0 && is_hidden_prop(name)) {
+    return;
+  }
+  w.original(pi, w.cookie);
+}
+
+}  // namespace
+
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_foreach(void (*propfn)(const prop_info* pi, void* cookie), void* cookie) {
-  return system_properties.Foreach(propfn, cookie);
+  ForeachWrapper wrapper{propfn, cookie};
+  return system_properties.Foreach(filtered_foreach, &wrapper);
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE

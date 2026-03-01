@@ -195,6 +195,8 @@ LIBC {
     __system_property_read;
     __system_property_serial;
     __system_property_set;
+    __system_property_spoof_add;
+    __system_property_spoof_enable;
     __timer_create; # arm x86
     __timer_delete; # arm x86
     __timer_getoverrun; # arm x86
