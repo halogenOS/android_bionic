@@ -32,6 +32,7 @@
 #include <unistd.h>
 
 #include <async_safe/CHECK.h>
+#include <async_safe/log.h>
 #include <system_properties/prop_area.h>
 #include <system_properties/system_properties.h>
 
@@ -47,7 +48,7 @@ static_assert(__is_trivially_constructible(SystemProperties),
 
 namespace {
 
-constexpr size_t kMaxSpoofEntries = 32;
+constexpr size_t kMaxSpoofEntries = 64;
 constexpr size_t kNameCapacity = 128;
 
 struct SpoofEntry {
@@ -74,9 +75,21 @@ bool is_hidden_prop(const char* name) {
 const char* get_spoofed_value(const char* name) {
   if (!g_spoof_active) return nullptr;
   for (int i = 0; i < g_spoof_count; i++) {
-    if (strcmp(name, g_spoof_entries[i].name) == 0) return g_spoof_entries[i].value;
+    if (strcmp(name, g_spoof_entries[i].name) == 0) {
+      async_safe_format_log(ANDROID_LOG_DEBUG, "SysPropSpoof",
+                            "Intercepted read: %s -> %s", name, g_spoof_entries[i].value);
+      return g_spoof_entries[i].value;
+    }
   }
   return nullptr;
+}
+
+// Log all property reads from spoofed processes for diagnostics
+void log_prop_read(const char* name, const char* value) {
+  if (g_spoof_count > 0 && name) {
+    async_safe_format_log(ANDROID_LOG_DEBUG, "SysPropRead",
+                          "%s = %s", name, value ? value : "(null)");
+  }
 }
 
 }  // namespace
@@ -88,10 +101,14 @@ extern "C" void __system_property_spoof_add(const char* name, const char* value)
   strlcpy(g_spoof_entries[idx].name, name, kNameCapacity);
   strlcpy(g_spoof_entries[idx].value, value, PROP_VALUE_MAX);
   g_spoof_count++;
+  async_safe_format_log(ANDROID_LOG_INFO, "SysPropSpoof",
+                        "Added spoof [%d]: %s = %s", idx, name, value);
 }
 
 extern "C" void __system_property_spoof_enable() {
   g_spoof_active = true;
+  async_safe_format_log(ANDROID_LOG_INFO, "SysPropSpoof",
+                        "Spoof enabled with %d entries", g_spoof_count);
 }
 
 // This is public because it was exposed in the NDK. As of 2017-01, ~60 apps reference this symbol.
@@ -162,6 +179,7 @@ void intercepted_read_callback(void* wrapper_ptr, const char* name, const char* 
       w.original(w.cookie, name, spoofed, serial);
       return;
     }
+    log_prop_read(name, value);
   }
   w.original(w.cookie, name, value, serial);
 }
@@ -185,7 +203,9 @@ int __system_property_get(const char* name, char* value) {
   }
   const char* spoofed = get_spoofed_value(name);
   if (spoofed) return static_cast<int>(strlcpy(value, spoofed, PROP_VALUE_MAX));
-  return system_properties.Get(name, value);
+  int len = system_properties.Get(name, value);
+  log_prop_read(name, value);
+  return len;
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
