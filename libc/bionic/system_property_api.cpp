@@ -48,7 +48,7 @@ static_assert(__is_trivially_constructible(SystemProperties),
 
 namespace {
 
-constexpr size_t kMaxSpoofEntries = 64;
+constexpr size_t kMaxSpoofEntries = 128;
 constexpr size_t kNameCapacity = 128;
 
 struct SpoofEntry {
