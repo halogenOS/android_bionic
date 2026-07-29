@@ -72,6 +72,24 @@ bool is_hidden_prop(const char* name) {
   return false;
 }
 
+// Prefixes hidden only from processes that registered spoof entries (spoof
+// targets). A stock device of the claimed identity has no such properties at
+// all, so for those processes their mere existence contradicts the claimed
+// identity even when their values are overridden. Hidden from every access
+// path: by-name lookup, read, read-callback, and enumeration.
+static const char* const kSpoofTargetHiddenPrefixes[] = {
+    "ro.custom.",
+    "init.svc.custom.",
+};
+
+bool is_spoof_target_hidden_prop(const char* name) {
+  if (g_spoof_count == 0) return false;  // only processes with spoof entries
+  for (const auto& prefix : kSpoofTargetHiddenPrefixes) {
+    if (strncmp(name, prefix, strlen(prefix)) == 0) return true;
+  }
+  return false;
+}
+
 const char* get_spoofed_value(const char* name) {
   if (!g_spoof_active) return nullptr;
   for (int i = 0; i < g_spoof_count; i++) {
@@ -139,7 +157,7 @@ uint32_t __system_property_area_serial() {
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 const prop_info* __system_property_find(const char* name) {
-  if (__predict_false(is_hidden_prop(name))) {
+  if (__predict_false(is_hidden_prop(name) || is_spoof_target_hidden_prop(name))) {
     return nullptr;
   }
   return system_properties.Find(name);
@@ -149,7 +167,7 @@ __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_read(const prop_info* pi, char* name, char* value) {
   int len = system_properties.Read(pi, name, value);
   if (__predict_false(len > 0 && name)) {
-    if (is_hidden_prop(name)) {
+    if (is_hidden_prop(name) || is_spoof_target_hidden_prop(name)) {
       value[0] = '\0';
       return 0;
     }
@@ -170,7 +188,7 @@ void intercepted_read_callback(void* wrapper_ptr, const char* name, const char* 
                                uint32_t serial) {
   auto& w = *static_cast<ReadCallbackWrapper*>(wrapper_ptr);
   if (name) {
-    if (is_hidden_prop(name)) {
+    if (is_hidden_prop(name) || is_spoof_target_hidden_prop(name)) {
       w.original(w.cookie, name, "", serial);
       return;
     }
@@ -197,7 +215,7 @@ void __system_property_read_callback(const prop_info* pi,
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_get(const char* name, char* value) {
-  if (__predict_false(is_hidden_prop(name))) {
+  if (__predict_false(is_hidden_prop(name) || is_spoof_target_hidden_prop(name))) {
     value[0] = '\0';
     return 0;
   }
@@ -259,7 +277,8 @@ void filtered_foreach(const prop_info* pi, void* wrapper_ptr) {
   char value[PROP_VALUE_MAX];
   memset(name, 0, sizeof(name));
   memset(value, 0, sizeof(value));
-  if (system_properties.Read(pi, name, value) > 0 && is_hidden_prop(name)) {
+  if (system_properties.Read(pi, name, value) > 0 &&
+      (is_hidden_prop(name) || is_spoof_target_hidden_prop(name))) {
     return;
   }
   w.original(pi, w.cookie);
