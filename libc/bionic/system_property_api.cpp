@@ -48,7 +48,7 @@ static_assert(__is_trivially_constructible(SystemProperties),
 
 namespace {
 
-constexpr size_t kMaxSpoofEntries = 128;
+constexpr size_t kMaxSpoofEntries = 192;
 constexpr size_t kNameCapacity = 128;
 
 struct SpoofEntry {
@@ -59,6 +59,23 @@ struct SpoofEntry {
 SpoofEntry g_spoof_entries[kMaxSpoofEntries];
 volatile int g_spoof_count = 0;
 volatile bool g_spoof_active = false;
+
+// Exact-name hides for spoof-target processes: host-device artifacts that
+// simply do not exist on the claimed device (per-partition product props for
+// partitions that are empty on stock, vendor feature props, device-named HAL
+// service bookkeeping). A stock device of the claimed identity answers
+// "no such property" for these, so find/read/get/enum all act as if absent.
+constexpr size_t kMaxHiddenEntries = 64;
+char g_spoof_hidden_names[kMaxHiddenEntries][kNameCapacity];
+volatile int g_spoof_hidden_count = 0;
+
+bool is_spoof_hidden_prop(const char* name) {
+  if (g_spoof_count == 0) return false;  // only processes with spoof entries
+  for (int i = 0; i < g_spoof_hidden_count; i++) {
+    if (strcmp(name, g_spoof_hidden_names[i]) == 0) return true;
+  }
+  return false;
+}
 
 static const char* const kHiddenPrefixes[] = {
     "persist.sys.pihooks.",
@@ -123,6 +140,15 @@ extern "C" void __system_property_spoof_add(const char* name, const char* value)
                         "Added spoof [%d]: %s = %s", idx, name, value);
 }
 
+extern "C" void __system_property_spoof_hide(const char* name) {
+  if (g_spoof_active) return;  // locked after enable
+  if (g_spoof_hidden_count >= static_cast<int>(kMaxHiddenEntries)) return;
+  strlcpy(g_spoof_hidden_names[g_spoof_hidden_count], name, kNameCapacity);
+  g_spoof_hidden_count++;
+  async_safe_format_log(ANDROID_LOG_INFO, "SysPropSpoof", "Hidden prop [%d]: %s",
+                        g_spoof_hidden_count - 1, name);
+}
+
 extern "C" void __system_property_spoof_enable() {
   g_spoof_active = true;
   async_safe_format_log(ANDROID_LOG_INFO, "SysPropSpoof",
@@ -157,7 +183,7 @@ uint32_t __system_property_area_serial() {
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 const prop_info* __system_property_find(const char* name) {
-  if (__predict_false(is_hidden_prop(name) || is_spoof_target_hidden_prop(name))) {
+  if (__predict_false(is_hidden_prop(name) || is_spoof_target_hidden_prop(name) || is_spoof_hidden_prop(name))) {
     return nullptr;
   }
   return system_properties.Find(name);
@@ -167,7 +193,7 @@ __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_read(const prop_info* pi, char* name, char* value) {
   int len = system_properties.Read(pi, name, value);
   if (__predict_false(len > 0 && name)) {
-    if (is_hidden_prop(name) || is_spoof_target_hidden_prop(name)) {
+    if (is_hidden_prop(name) || is_spoof_target_hidden_prop(name) || is_spoof_hidden_prop(name)) {
       value[0] = '\0';
       return 0;
     }
@@ -188,7 +214,7 @@ void intercepted_read_callback(void* wrapper_ptr, const char* name, const char* 
                                uint32_t serial) {
   auto& w = *static_cast<ReadCallbackWrapper*>(wrapper_ptr);
   if (name) {
-    if (is_hidden_prop(name) || is_spoof_target_hidden_prop(name)) {
+    if (is_hidden_prop(name) || is_spoof_target_hidden_prop(name) || is_spoof_hidden_prop(name)) {
       w.original(w.cookie, name, "", serial);
       return;
     }
@@ -215,7 +241,7 @@ void __system_property_read_callback(const prop_info* pi,
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int __system_property_get(const char* name, char* value) {
-  if (__predict_false(is_hidden_prop(name) || is_spoof_target_hidden_prop(name))) {
+  if (__predict_false(is_hidden_prop(name) || is_spoof_target_hidden_prop(name) || is_spoof_hidden_prop(name))) {
     value[0] = '\0';
     return 0;
   }
@@ -278,7 +304,7 @@ void filtered_foreach(const prop_info* pi, void* wrapper_ptr) {
   memset(name, 0, sizeof(name));
   memset(value, 0, sizeof(value));
   if (system_properties.Read(pi, name, value) > 0 &&
-      (is_hidden_prop(name) || is_spoof_target_hidden_prop(name))) {
+      (is_hidden_prop(name) || is_spoof_target_hidden_prop(name) || is_spoof_hidden_prop(name))) {
     return;
   }
   w.original(pi, w.cookie);
